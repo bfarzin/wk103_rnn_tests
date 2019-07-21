@@ -42,7 +42,6 @@ def on_train_begin_workaround(self, **kwargs):
 DistributedTrainer.on_train_begin = on_train_begin_workaround
 
 
-
 #Functions to parse WT103 in separate articles
 def istitle(line):
     return len(re.findall(r'^ = [^=]* = $', line)) != 0
@@ -76,10 +75,9 @@ def create_data(path):
     data.save()
 
 def worker(ddp=True):
-    ## build data
     name = 'test1'
     gpu = args.local_rank
-    bs, bptt = 512,80  ## seems to be max on V100
+    bs, bptt = 96,80  ## seems to be max on V100
     backwards = False
     drop_mult = 1.
     epochs = args.epochs
@@ -104,7 +102,8 @@ def worker(ddp=True):
         ## nccl or gloo ??
         torch.distributed.init_process_group(backend='nccl', init_method='env://')
 
-    data = load_data(path, bs=bs, bptt=bptt, backwards=backwards)
+    # data = load_data(path, bs=bs, bptt=bptt, backwards=backwards)
+    data = load_data(path, bs=bs)
     learn = language_model_learner(data, AWD_LSTM, drop_mult=drop_mult, pretrained=False,
                                    metrics=[accuracy, Perplexity()])
     learn = learn.to_fp16(clip=0.1)
