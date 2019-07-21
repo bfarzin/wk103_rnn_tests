@@ -126,7 +126,7 @@ def worker(ddp=True):
 def local_launcher():
     os.system(f'python -m torch.distributed.launch --nproc_per_node={args.proc_per_node}'
               f' fastai_wk103_distributed.py --mode=worker ')
-              
+
 def launcher():
     import ncluster
 
@@ -147,11 +147,13 @@ if __name__ == '__main__':
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--save-model', action='store_true', default=False,
                         help='For Saving the current Model')
-    # parser.add_argument('--remote', action='store_true', default=False,
-    #                     help='run training remotely')
+    parser.add_argument('--proc_per_node', default=2, 
+                        help='number of processes per machine')
     parser.add_argument('--local_rank', type=int, default=0,
                         help='local_rank set for distributed training')
-    parser.add_argument('--mode', default='localworker', choices=['remote', 'local', 'worker', 'localworker'], help="local: spawn multiple processes locally, remote: launch multiple machines/processes on AWS, worker: DDP aware single process process version, localworker: standalone single process version")
+    parser.add_argument('--mode', default='localworker', 
+                        choices=['remote', 'local', 'worker', 'localworker'],
+                        help="local: spawn multiple processes locally, remote: launch multiple machines/processes on AWS, worker: DDP aware single process process version, localworker: standalone single process version")
 
     args = parser.parse_args()
 
