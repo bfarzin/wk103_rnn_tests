@@ -19,6 +19,7 @@ from fastai.text import *
 from fastai.script import *
 from fastai.distributed import *
 from fastprogress import fastprogress
+import torch.distributed as dist
 
 import datetime             # for timestamps in the output to log progress
 
@@ -80,9 +81,22 @@ def worker(ddp=True):
     lr = 1e-3
     wd = 0.1
 
+
+    world_size = int(os.environ.get('WORLD_SIZE', 1))
+    rank = int(os.environ.get('RANK', 0))
+    if ddp: dist.init_process_group(backend='gloo', init_method='env://')
+
+
     path = Path('wikitext-103/').absolute()
-    fastprogress.SAVE_PATH = f'{name}.txt' #Save the output of the progress bar in {name}.txt
-    if not (path/'data_save.pkl').is_file(): create_data(path)
+    # fastprogress.SAVE_PATH = f'{name}.txt' #Save the output of the progress bar in {name}.txt
+
+    # only download dataset once per machine, sync workers
+    if not (path/'data_save.pkl').is_file() and args.local_rank==0: 
+        create_data(path)
+        print(f"DDP: process {rank}/{world_size}")
+    if ddp:
+        dist.barrier()
+
     torch.cuda.set_device(gpu)
     torch.distributed.init_process_group(backend='nccl', init_method='env://')
 
@@ -90,7 +104,7 @@ def worker(ddp=True):
     learn = language_model_learner(data, AWD_LSTM, drop_mult=drop_mult, pretrained=False,
                                    metrics=[accuracy, Perplexity()])
     learn = learn.to_fp16(clip=0.1)
-    learn = learn.to_distributed(gpu)
+    if ddp: learn = learn.to_distributed(gpu)
 
     t0 = datetime.datetime.now()
     print(t0, f'Starting training {epochs} epochs',flush=True)
@@ -133,13 +147,24 @@ if __name__ == '__main__':
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--save-model', action='store_true', default=False,
                         help='For Saving the current Model')
-    parser.add_argument('--remote', action='store_true', default=False,
-                        help='run training remotely')
+    # parser.add_argument('--remote', action='store_true', default=False,
+    #                     help='run training remotely')
     parser.add_argument('--local_rank', type=int, default=0,
                         help='local_rank set for distributed training')
+    parser.add_argument('--mode', default='localworker', choices=['remote', 'local', 'worker', 'localworker'], help="local: spawn multiple processes locally, remote: launch multiple machines/processes on AWS, worker: DDP aware single process process version, localworker: standalone single process version")
+
     args = parser.parse_args()
 
-    if args.remote:
-        launcher()
-    else:
+    # if args.remote:
+    #     launcher()
+    # else:
+    #     worker()
+    if args.mode == 'remote':
+        remote_launcher()
+    elif args.mode == 'local':
+        local_launcher()
+    elif args.mode == 'worker':
         worker()
+    elif args.mode == 'localworker':
+        worker(ddp=False)
+
