@@ -1,3 +1,5 @@
+from __future__ import print_function
+
 """
 Train Wiki103 LM from scratch using parameters that are sent.
 
@@ -17,7 +19,6 @@ python mnist.py --remote
 import os
 os.environ['CUDA_VISIBLE_DEVICES'] = "2,3"
 
-from __future__ import print_function
 import argparse
 from fastai.text import *
 from fastai.script import *
