@@ -13,6 +13,10 @@ python mnist.py
 # set your AWS_DEFAULT_REGION/AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY
 python mnist.py --remote
 """
+
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = "2,3"
+
 from __future__ import print_function
 import argparse
 from fastai.text import *
@@ -81,14 +85,11 @@ def worker(ddp=True):
     lr = 1e-3
     wd = 0.1
 
-
     world_size = int(os.environ.get('WORLD_SIZE', 1))
     rank = int(os.environ.get('RANK', 0))
     if ddp: dist.init_process_group(backend='gloo', init_method='env://')
 
-
     path = Path('wikitext-103/').absolute()
-    # fastprogress.SAVE_PATH = f'{name}.txt' #Save the output of the progress bar in {name}.txt
 
     # only download dataset once per machine, sync workers
     if not (path/'data_save.pkl').is_file() and args.local_rank==0: 
@@ -108,7 +109,9 @@ def worker(ddp=True):
 
     t0 = datetime.datetime.now()
     print(t0, f'Starting training {epochs} epochs',flush=True)
+
     learn.fit_one_cycle(epochs, lr, moms=(0.8,0.7), div_factor=10, wd=wd)
+
     t1=datetime.datetime.now()
     print(t1, 'Finished training 10 epoch',flush=True)
     print('duration',t1-t0)    
@@ -116,14 +119,6 @@ def worker(ddp=True):
     learn = learn.to_fp32()
     learn.save(Path(f'{name}').absolute(), with_opt=False)
     learn.data.vocab.save(path/f'{name}_vocab.pkl')
-
-    ## prior for MNIST
-    # path = untar_data(URLs.MNIST_SAMPLE)
-    # data = ImageDataBunch.from_folder(path)
-    # learn = cnn_learner(data, models.resnet18, metrics=accuracy)
-    # learn.fit(args.epochs)
-    # if args.save_model:
-    #     learn.save(Path('mnist_example').absolute())
 
 def launcher():
     import ncluster
@@ -137,8 +132,6 @@ def launcher():
     ## get wiki103 and unzip
     task.run('wget https://s3.amazonaws.com/research.metamind.io/wikitext/wikitext-103-v1.zip && unzip wikitext-103-v1.zip')
 
-    ## take params from `args` and use in this call here
-    ## get this call from a text file?  database query?  Something to specify the tests we are interested in running.
     task.run('python -m torch.distributed.launch --nproc_per_node=4 ./fastai_wk103_distributed.py --save-model', stream_output=True)
 
 if __name__ == '__main__':
