@@ -100,7 +100,9 @@ def worker(ddp=True):
         dist.barrier()
 
     torch.cuda.set_device(gpu)
-    torch.distributed.init_process_group(backend='nccl', init_method='env://')
+    if ddp:
+        ## nccl or gloo ??
+        torch.distributed.init_process_group(backend='nccl', init_method='env://')
 
     data = load_data(path, bs=bs, bptt=bptt, backwards=backwards)
     learn = language_model_learner(data, AWD_LSTM, drop_mult=drop_mult, pretrained=False,
