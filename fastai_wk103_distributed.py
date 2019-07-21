@@ -77,6 +77,7 @@ def worker(ddp=True):
     drop_mult = 1.
     epochs = args.epochs
     lr = 1e-3
+    if ddp: lr *= args.proc_per_node
     wd = 0.1
 
     world_size = int(os.environ.get('WORLD_SIZE', 1))
@@ -120,15 +121,15 @@ def local_launcher():
 def launcher():
     import ncluster
 
-    task = ncluster.make_task(name='fastai_wk103',
+    task = ncluster.make_task(name='fastai_wk103_single',
                               image_name='Deep Learning AMI (Ubuntu) Version 23.0',
-                              instance_type='p3.8xlarge') #'c5.large': CPU, p3.2xlarge:GPU 
+                              instance_type='p3.2xlarge') #'c5.large': CPU, p3.2xlarge:GPU 
     task.upload('fastai_wk103_distributed.py')  # send over the file. 
     task.run('source activate pytorch_p36')
     task.run('conda install -y -c fastai fastai')  ##install fastai
     ## get wiki103 and unzip
     task.run('wget https://s3.amazonaws.com/research.metamind.io/wikitext/wikitext-103-v1.zip && unzip wikitext-103-v1.zip')
-    task.run('python -m torch.distributed.launch --nproc_per_node=4 ./fastai_wk103_distributed.py --mode=worker --save-model', stream_output=True)
+    task.run('python -m torch.distributed.launch --nproc_per_node=1 ./fastai_wk103_distributed.py --mode=worker --save-model', stream_output=True)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Fastai MNIST Example')
