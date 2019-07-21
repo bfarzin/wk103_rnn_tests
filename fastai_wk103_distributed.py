@@ -77,7 +77,7 @@ def create_data(path):
 def worker(ddp=True):
     name = 'test1'
     gpu = args.local_rank
-    bs, bptt = 96,80  ## seems to be max on V100
+    bs, bptt = 256,80  ## seems to be max on V100
     backwards = False
     drop_mult = 1.
     epochs = args.epochs
@@ -98,12 +98,9 @@ def worker(ddp=True):
         dist.barrier()
 
     torch.cuda.set_device(gpu)
-    if ddp:
-        ## nccl or gloo ??
-        torch.distributed.init_process_group(backend='nccl', init_method='env://')
 
-    # data = load_data(path, bs=bs, bptt=bptt, backwards=backwards)
-    data = load_data(path, bs=bs)
+    data = load_data(path, bs=bs, bptt=bptt, backwards=backwards)
+    # data = load_data(path, bs=bs)
     learn = language_model_learner(data, AWD_LSTM, drop_mult=drop_mult, pretrained=False,
                                    metrics=[accuracy, Perplexity()])
     learn = learn.to_fp16(clip=0.1)
@@ -124,8 +121,7 @@ def worker(ddp=True):
 
 
 def local_launcher():
-    os.system(f'python -m torch.distributed.launch --nproc_per_node={args.proc_per_node}'
-              f' fastai_wk103_distributed.py --mode=worker ')
+    os.system(f'python -m torch.distributed.launch --nproc_per_node={args.proc_per_node} fastai_wk103_distributed.py --mode=worker')
 
 def launcher():
     import ncluster
