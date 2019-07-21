@@ -122,6 +122,11 @@ def worker(ddp=True):
     learn.save(Path(f'{name}').absolute(), with_opt=False)
     learn.data.vocab.save(path/f'{name}_vocab.pkl')
 
+
+def local_launcher():
+    os.system(f'python -m torch.distributed.launch --nproc_per_node={args.proc_per_node}'
+              f' fastai_wk103_distributed.py --mode=worker ')
+              
 def launcher():
     import ncluster
 
