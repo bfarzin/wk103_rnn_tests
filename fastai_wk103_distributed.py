@@ -15,10 +15,6 @@ python mnist.py
 # set your AWS_DEFAULT_REGION/AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY
 python mnist.py --remote
 """
-
-import os
-os.environ['CUDA_VISIBLE_DEVICES'] = "2,3"
-
 import argparse
 from fastai.text import *
 from fastai.script import *
@@ -27,7 +23,6 @@ from fastprogress import fastprogress
 import torch.distributed as dist
 
 import datetime             # for timestamps in the output to log progress
-
 
 # temp workaround that adds find_unused_parameters=True to DistributedDataParallel call - otherwise things crash with pretrained=False (but works fine with pretrained=True)
 def on_train_begin_workaround(self, **kwargs):
@@ -77,7 +72,7 @@ def create_data(path):
 def worker(ddp=True):
     name = 'test1'
     gpu = args.local_rank
-    bs, bptt = 256,80  ## seems to be max on V100
+    bs, bptt = 128,80  # 256:GTX, 128:V100
     backwards = False
     drop_mult = 1.
     epochs = args.epochs
@@ -100,7 +95,6 @@ def worker(ddp=True):
     torch.cuda.set_device(gpu)
 
     data = load_data(path, bs=bs, bptt=bptt, backwards=backwards)
-    # data = load_data(path, bs=bs)
     learn = language_model_learner(data, AWD_LSTM, drop_mult=drop_mult, pretrained=False,
                                    metrics=[accuracy, Perplexity()])
     learn = learn.to_fp16(clip=0.1)
@@ -134,8 +128,7 @@ def launcher():
     task.run('conda install -y -c fastai fastai')  ##install fastai
     ## get wiki103 and unzip
     task.run('wget https://s3.amazonaws.com/research.metamind.io/wikitext/wikitext-103-v1.zip && unzip wikitext-103-v1.zip')
-
-    task.run('python -m torch.distributed.launch --nproc_per_node=4 ./fastai_wk103_distributed.py --save-model', stream_output=True)
+    task.run('python -m torch.distributed.launch --nproc_per_node=4 ./fastai_wk103_distributed.py --mode=worker --save-model', stream_output=True)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Fastai MNIST Example')
@@ -158,7 +151,8 @@ if __name__ == '__main__':
     # else:
     #     worker()
     if args.mode == 'remote':
-        remote_launcher()
+        launcher()
+        # remote_launcher()
     elif args.mode == 'local':
         local_launcher()
     elif args.mode == 'worker':
