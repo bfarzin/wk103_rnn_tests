@@ -61,7 +61,7 @@ def create_data(path):
     valid = read_file(path/'wiki.valid.tokens')
     test =  read_file(path/'wiki.test.tokens')
     all_texts = np.concatenate([valid, train, test])
-    df = pd.DataFrame({'texts':all_texts})
+    df = pd.DataFrame({'texts':all_texts}).head(10000)  ## test set, small number
     del train ; del valid ; del test #Free RQM before tokenizing
     data = (TextList.from_df(df, path, cols='texts')
                     .split_by_idx(range(0,60))
@@ -79,6 +79,9 @@ def worker(ddp=True):
     lr = 1e-3
     if ddp: lr *= args.proc_per_node
     wd = 0.1
+
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
 
     world_size = int(os.environ.get('WORLD_SIZE', 1))
     rank = int(os.environ.get('RANK', 0))
@@ -121,7 +124,7 @@ def local_launcher():
 def launcher():
     import ncluster
 
-    task = ncluster.make_task(name='fastai_wk103_single',
+    task = ncluster.make_task(name='fastai_wk103_multi',
                               image_name='Deep Learning AMI (Ubuntu) Version 23.0',
                               instance_type='p3.8xlarge') #'c5.large': CPU, p3.2xlarge: one GPU,  
     task.upload('fastai_wk103_distributed.py')  # send over the file. 
@@ -138,6 +141,8 @@ if __name__ == '__main__':
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--save-model', action='store_true', default=False,
                         help='For Saving the current Model')
+    parser.add_argument('--seed', type=int, default=42, metavar='S',
+                        help='random seed (default: 42)')
     parser.add_argument('--proc_per_node', default=4, 
                         help='number of processes per machine')
     parser.add_argument('--local_rank', type=int, default=0,
