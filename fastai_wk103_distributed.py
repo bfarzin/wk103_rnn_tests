@@ -142,7 +142,7 @@ if __name__ == '__main__':
                         help='For Saving the current Model')
     parser.add_argument('--seed', type=int, default=42, metavar='S',
                         help='random seed (default: 42)')
-    parser.add_argument('--proc_per_node', default=4, 
+    parser.add_argument('--proc_per_node',type=int, default=4, 
                         help='number of processes per machine')
     parser.add_argument('--local_rank', type=int, default=0,
                         help='local_rank set for distributed training')
