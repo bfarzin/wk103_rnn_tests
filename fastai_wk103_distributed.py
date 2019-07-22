@@ -61,12 +61,12 @@ def create_data(path):
     valid = read_file(path/'wiki.valid.tokens')
     test =  read_file(path/'wiki.test.tokens')
     all_texts = np.concatenate([valid, train, test])
-    df = pd.DataFrame({'texts':all_texts}).head(10000)  ## test set, small number
+    df = pd.DataFrame({'texts':all_texts}) #.head(500)  ## test set, small number
     del train ; del valid ; del test #Free RQM before tokenizing
     data = (TextList.from_df(df, path, cols='texts')
                     .split_by_idx(range(0,60))
                     .label_for_lm()
-                    .databunch(bptt=80*4))
+                    .databunch(bptt=80))
     data.save()
 
 def worker(ddp=True):
@@ -85,7 +85,7 @@ def worker(ddp=True):
 
     world_size = int(os.environ.get('WORLD_SIZE', 1))
     rank = int(os.environ.get('RANK', 0))
-    if ddp: dist.init_process_group(backend='gloo', init_method='env://')
+    if ddp: dist.init_process_group(backend='nccl', init_method='env://')
 
     path = Path('wikitext-103/').absolute()
 
@@ -93,8 +93,8 @@ def worker(ddp=True):
     if not (path/'data_save.pkl').is_file() and args.local_rank==0: 
         create_data(path)
         print(f"DDP: process {rank}/{world_size}")
-    if ddp:
-        dist.barrier()
+
+    if ddp: dist.barrier()  ## sync up so all workers have the data
 
     torch.cuda.set_device(gpu)
 
@@ -104,13 +104,11 @@ def worker(ddp=True):
     learn = learn.to_fp16(clip=0.1)
     if ddp: learn = learn.to_distributed(gpu)
 
-    t0 = datetime.datetime.now()
-    print(t0, f'Starting training {epochs} epochs',flush=True)
+    t0 = datetime.datetime.now();    print(t0, f'Starting training {epochs} epochs',flush=True)
 
     learn.fit_one_cycle(epochs, lr, moms=(0.8,0.7), div_factor=10, wd=wd)
 
-    t1=datetime.datetime.now()
-    print(t1, f'Finished training {epochs} epoch',flush=True)
+    t1=datetime.datetime.now();    print(t1, f'Finished training {epochs} epoch',flush=True)
     print('duration',t1-t0)    
 
     learn = learn.to_fp32()
@@ -119,7 +117,8 @@ def worker(ddp=True):
 
 
 def local_launcher():
-    os.system(f'python -m torch.distributed.launch --nproc_per_node={args.proc_per_node} fastai_wk103_distributed.py --mode=worker')
+    os.system(f'python -m torch.distributed.launch --nproc_per_node={args.proc_per_node} '
+              f'fastai_wk103_distributed.py --mode=worker --proc_per_node={args.proc_per_node}')
 
 def launcher():
     import ncluster
@@ -133,7 +132,7 @@ def launcher():
     ## get wiki103 and unzip
     task.run('wget https://s3.amazonaws.com/research.metamind.io/wikitext/wikitext-103-v1.zip && unzip wikitext-103-v1.zip')
     task.run(f'python -m torch.distributed.launch --nproc_per_node={args.proc_per_node} '
-             f'./fastai_wk103_distributed.py --mode=worker --save-model', stream_output=True)
+             f'./fastai_wk103_distributed.py --mode=worker --proc_per_node={args.proc_per_node} --save-model', stream_output=True)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Fastai MNIST Example')
