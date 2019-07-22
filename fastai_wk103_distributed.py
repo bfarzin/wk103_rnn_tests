@@ -72,7 +72,7 @@ def create_data(path):
 def worker(ddp=True):
     name = 'test1'
     gpu = args.local_rank
-    bs, bptt = 128,80  # 256:GTX, 128:V100
+    bs, bptt = 128,80  # 256:RTX, 128:V100
     backwards = False
     drop_mult = 1.
     epochs = args.epochs
@@ -107,7 +107,7 @@ def worker(ddp=True):
     learn.fit_one_cycle(epochs, lr, moms=(0.8,0.7), div_factor=10, wd=wd)
 
     t1=datetime.datetime.now()
-    print(t1, 'Finished training 10 epoch',flush=True)
+    print(t1, f'Finished training {epochs} epoch',flush=True)
     print('duration',t1-t0)    
 
     learn = learn.to_fp32()
@@ -123,13 +123,14 @@ def launcher():
 
     task = ncluster.make_task(name='fastai_wk103_single',
                               image_name='Deep Learning AMI (Ubuntu) Version 23.0',
-                              instance_type='p3.2xlarge') #'c5.large': CPU, p3.2xlarge:GPU 
+                              instance_type='p3.8xlarge') #'c5.large': CPU, p3.2xlarge: one GPU,  
     task.upload('fastai_wk103_distributed.py')  # send over the file. 
     task.run('source activate pytorch_p36')
     task.run('conda install -y -c fastai fastai')  ##install fastai
     ## get wiki103 and unzip
     task.run('wget https://s3.amazonaws.com/research.metamind.io/wikitext/wikitext-103-v1.zip && unzip wikitext-103-v1.zip')
-    task.run('python -m torch.distributed.launch --nproc_per_node=1 ./fastai_wk103_distributed.py --mode=worker --save-model', stream_output=True)
+    task.run(f'python -m torch.distributed.launch --nproc_per_node={args.proc_per_node} '
+             f'./fastai_wk103_distributed.py --mode=worker --save-model', stream_output=True)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Fastai MNIST Example')
@@ -137,7 +138,7 @@ if __name__ == '__main__':
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--save-model', action='store_true', default=False,
                         help='For Saving the current Model')
-    parser.add_argument('--proc_per_node', default=2, 
+    parser.add_argument('--proc_per_node', default=4, 
                         help='number of processes per machine')
     parser.add_argument('--local_rank', type=int, default=0,
                         help='local_rank set for distributed training')
