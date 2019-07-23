@@ -1,20 +1,5 @@
 from __future__ import print_function
 
-"""
-Train Wiki103 LM from scratch using parameters that are sent.
-
-Raw file can be pulled from https://s3.amazonaws.com/research.metamind.io/wikitext/wikitext-103-v1.zip
-
-Usage
-pip install -r requirements.txt
-
-# run locally
-python mnist.py
-
-# run remotely
-# set your AWS_DEFAULT_REGION/AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY
-python mnist.py --remote
-"""
 import argparse
 from fastai.text import *
 from fastai.script import *
@@ -37,36 +22,25 @@ def on_train_begin_workaround(self, **kwargs):
 DistributedTrainer.on_train_begin = on_train_begin_workaround
 
 
-#Functions to parse WT103 in separate articles
-def istitle(line):
-    return len(re.findall(r'^ = [^=]* = $', line)) != 0
+#Linue EU Parliment data for translation
+def create_data(path, base:str='fr', targ:str='en'):
+    with open(path/'europarl-v7.fr-en.fr') as f: fr = f.read().split('\n')
+    with open(path/'europarl-v7.fr-en.en') as f: en = f.read().split('\n')
+    
+    # qs = [(a,b) for (a,b) in zip(en,fr)]
+    # df = pd.DataFrame({'fr': [q[1] for q in qs], 'en': [q[0] for q in qs]}, columns = ['en', 'fr'])
+    # df.to_csv(path/'europarl_fr_en.csv', index=False)
+    df = pd.DataFrame({'fr': [a for a in fr], 'en': [b for b in en]}, columns = ['en', 'fr'])
+    df['en'] = df['en'].apply(lambda x:str(x).lower())
+    df['fr'] = df['fr'].apply(lambda x:str(x).lower())
+    df.en = df.en.astype(str)
+    df.fr = df.fr.astype(str)
 
-def read_file(filename):
-    articles = []
-    with open(filename, encoding='utf8') as f:
-        lines = f.readlines()
-    current_article = ''
-    for i,line in enumerate(lines):
-        current_article += line
-        if i < len(lines)-2 and lines[i+1] == ' \n' and istitle(lines[i+2]):
-            current_article = current_article.replace('<unk>', UNK)
-            articles.append(current_article)
-            current_article = ''
-    current_article = current_article.replace('<unk>', UNK)
-    articles.append(current_article)
-    return np.array(articles)
-
-def create_data(path):
-    train = read_file(path/'wiki.train.tokens')
-    valid = read_file(path/'wiki.valid.tokens')
-    test =  read_file(path/'wiki.test.tokens')
-    all_texts = np.concatenate([valid, train, test])
-    df = pd.DataFrame({'texts':all_texts}) #.head(500)  ## test set, small number
-    del train ; del valid ; del test #Free RQM before tokenizing
-    data = (TextList.from_df(df, path, cols='texts')
-                    .split_by_idx(range(0,60))
-                    .label_for_lm()
-                    .databunch(bptt=80))
+    src = Seq2SeqTextList.from_df(df, path = path, cols=base)\
+                                .split_by_rand_pct(seed=42)\
+                                .label_from_df(cols=targ, label_cls=TextList)\
+                                .filter_by_func(lambda x,y: len(x) > 60 or len(y) > 60)\
+                                .databunch()
     data.save()
 
 def worker(ddp=True):
@@ -87,11 +61,11 @@ def worker(ddp=True):
     rank = int(os.environ.get('RANK', 0))
     if ddp: dist.init_process_group(backend='nccl', init_method='env://')
 
-    path = Path('wikitext-103/').absolute()
+    path = Path('giga-fren/').absolute()
 
     # only download dataset once per machine, sync workers
     if not (path/'data_save.pkl').is_file() and args.local_rank==0: 
-        create_data(path)
+        create_data(path,base='fr', targ='en')
         print(f"DDP: process {rank}/{world_size}")
 
     if ddp: dist.barrier()  ## sync up so all workers have the data
@@ -118,22 +92,23 @@ def worker(ddp=True):
 
 def local_launcher():
     os.system(f'python -m torch.distributed.launch --nproc_per_node={args.proc_per_node} '
-              f'fastai_wk103_distributed.py --mode=worker --proc_per_node={args.proc_per_node}')
+              f'fastai_TransformerNMT_distributed.py --mode=worker --proc_per_node={args.proc_per_node}')
 
 def launcher():
     import ncluster
 
-    task = ncluster.make_task(name='fastai_wk103_multi',
+    task = ncluster.make_task(name='fastai_NMT_multi',
                               image_name='Deep Learning AMI (Ubuntu) Version 23.0',
                               instance_type='p3.8xlarge') #'c5.large': CPU, p3.2xlarge: one GPU,  
-    task.upload('fastai_wk103_distributed.py')  # send over the file. 
+    task.upload('fastai_TransformerNMT_distributed.py')  # send over the file. 
+    # task.upload('')  #helper files
+
     task.run('source activate pytorch_p36')
-    task.run('conda install -y -c fastai fastai')  ##install fastai
-    ## get wiki103 and unzip
-    task.run('wget https://s3.amazonaws.com/research.metamind.io/wikitext/wikitext-103-v1.zip && unzip wikitext-103-v1.zip')
+    task.run('conda install -y -c fastai fastai') 
+    task.run('wget wget https://s3.amazonaws.com/fast-ai-nlp/giga-fren.tgz && tar -xvf giga-fren.tgz')
     task.run(f'python -m torch.distributed.launch --nproc_per_node={args.proc_per_node} '
-             f'./fastai_wk103_distributed.py --mode=worker --proc_per_node={args.proc_per_node} --save-model', stream_output=True)
-    # task. ## get the file(s)?
+             f'./fastai_TransformerNMT_distributed.py --mode=worker --proc_per_node={args.proc_per_node} --save-model', stream_output=True)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Fastai MNIST Example')
