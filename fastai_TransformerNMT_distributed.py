@@ -7,6 +7,9 @@ from fastai.distributed import *
 from fastprogress import fastprogress
 import torch.distributed as dist
 
+from transformer import *
+from seq2seq_metrics import *
+
 import datetime             # for timestamps in the output to log progress
 
 # temp workaround that adds find_unused_parameters=True to DistributedDataParallel call - otherwise things crash with pretrained=False (but works fine with pretrained=True)
@@ -26,17 +29,13 @@ DistributedTrainer.on_train_begin = on_train_begin_workaround
 def create_data(path, base:str='fr', targ:str='en'):
     with open(path/'europarl-v7.fr-en.fr') as f: fr = f.read().split('\n')
     with open(path/'europarl-v7.fr-en.en') as f: en = f.read().split('\n')
-    
-    # qs = [(a,b) for (a,b) in zip(en,fr)]
-    # df = pd.DataFrame({'fr': [q[1] for q in qs], 'en': [q[0] for q in qs]}, columns = ['en', 'fr'])
-    # df.to_csv(path/'europarl_fr_en.csv', index=False)
     df = pd.DataFrame({'fr': [a for a in fr], 'en': [b for b in en]}, columns = ['en', 'fr'])
     df['en'] = df['en'].apply(lambda x:str(x).lower())
     df['fr'] = df['fr'].apply(lambda x:str(x).lower())
     df.en = df.en.astype(str)
     df.fr = df.fr.astype(str)
 
-    src = Seq2SeqTextList.from_df(df, path = path, cols=base)\
+    data = Seq2SeqTextList.from_df(df, path = path, cols=base)\
                                 .split_by_rand_pct(seed=42)\
                                 .label_from_df(cols=targ, label_cls=TextList)\
                                 .filter_by_func(lambda x,y: len(x) > 60 or len(y) > 60)\
@@ -44,15 +43,13 @@ def create_data(path, base:str='fr', targ:str='en'):
     data.save()
 
 def worker(ddp=True):
-    name = 'test1'
+    base,targ = 'fr','en'
+    name = f'seq2seq_tfrm_{base}_{targ}'
     gpu = args.local_rank
-    bs, bptt = 128,80  # 256:RTX, 128:V100
-    backwards = False
-    drop_mult = 1.
+    bs, bptt = 80,80  # 208:RTX, 128:V100
     epochs = args.epochs
     lr = 1e-3
     if ddp: lr *= args.proc_per_node
-    wd = 0.1
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -67,28 +64,26 @@ def worker(ddp=True):
     if not (path/'data_save.pkl').is_file() and args.local_rank==0: 
         create_data(path,base='fr', targ='en')
         print(f"DDP: process {rank}/{world_size}")
-
     if ddp: dist.barrier()  ## sync up so all workers have the data
-
     torch.cuda.set_device(gpu)
 
-    data = load_data(path, bs=bs, bptt=bptt, backwards=backwards)
-    learn = language_model_learner(data, AWD_LSTM, drop_mult=drop_mult, pretrained=False,
-                                   metrics=[accuracy, Perplexity()])
-    learn = learn.to_fp16(clip=0.1)
+    data = load_data(path, bs=bs, bptt=bptt)
+    data.add_tfm(shift_tfm)
+    n_x_vocab,n_y_vocab = len(data.train_ds.x.vocab.itos), len(data.train_ds.y.vocab.itos)
+    model = Transformer(n_x_vocab, n_y_vocab, d_model=256)
+    model.apply(init_transformer)
+
+    learn = Learner(data, model, metrics=[accuracy, CorpusBLEU(n_y_vocab)], 
+                    loss_func=FlattenedLoss(LabelSmoothingCrossEntropy, axis=-1))
+
     if ddp: learn = learn.to_distributed(gpu)
 
     t0 = datetime.datetime.now();    print(t0, f'Starting training {epochs} epochs',flush=True)
-
-    learn.fit_one_cycle(epochs, lr, moms=(0.8,0.7), div_factor=10, wd=wd)
-
+    learn.fit_one_cycle(epochs, lr, div_factor=5)
     t1=datetime.datetime.now();    print(t1, f'Finished training {epochs} epoch',flush=True)
     print('duration',t1-t0)    
 
-    learn = learn.to_fp32()
     learn.save(Path(f'{name}').absolute(), with_opt=False)
-    learn.data.vocab.save(path/f'{name}_vocab.pkl')
-
 
 def local_launcher():
     os.system(f'python -m torch.distributed.launch --nproc_per_node={args.proc_per_node} '
@@ -99,9 +94,11 @@ def launcher():
 
     task = ncluster.make_task(name='fastai_NMT_multi',
                               image_name='Deep Learning AMI (Ubuntu) Version 23.0',
+                              disk_size=500, #500 GB disk space
                               instance_type='p3.8xlarge') #'c5.large': CPU, p3.2xlarge: one GPU,  
     task.upload('fastai_TransformerNMT_distributed.py')  # send over the file. 
-    # task.upload('')  #helper files
+    task.upload('transformer.py')  #helper files
+    task.upload('seq2seq_metrics.py')
 
     task.run('source activate pytorch_p36')
     task.run('conda install -y -c fastai fastai') 
@@ -111,7 +108,7 @@ def launcher():
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Fastai MNIST Example')
+    parser = argparse.ArgumentParser(description='Fastai Transformer NMT Example')
     parser.add_argument('--epochs', type=int, default=1, metavar='N',
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--save-model', action='store_true', default=False,
@@ -128,13 +125,8 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    # if args.remote:
-    #     launcher()
-    # else:
-    #     worker()
     if args.mode == 'remote':
         launcher()
-        # remote_launcher()
     elif args.mode == 'local':
         local_launcher()
     elif args.mode == 'worker':
