@@ -44,8 +44,8 @@ def create_data(path, base:str='fr', targ:str='en'):
     data.save()
 
 def worker(ddp=True):
-    base,targ = 'en','fr'
-    name = f'seq2seq_tfrm_{base}_{targ}'
+    # base,targ = 'en','fr'
+    name = f'seq2seq_tfrm_{args.base}_{args.targ}'
     gpu = args.local_rank
     bs = 80  # 208:RTX, 128:V100
     epochs = args.epochs
@@ -102,20 +102,24 @@ def launcher():
     task = ncluster.make_task(name='fastai_NMT_multi_en_fr',
                               image_name='Deep Learning AMI (Ubuntu) Version 23.0',
                               disk_size=500, #500 GB disk space
-                              instance_type='p3.2xlarge') #'c5.large': CPU, p3.2xlarge: one GPU, 8x=4 GPU, 16x=8GPU  
+                              instance_type='p3.8xlarge') #'c5.large': CPU, p3.2xlarge: one GPU, 8x=4 GPU, 16x=8GPU  
     task.upload('fastai_TransformerNMT_distributed_logging.py')  # send over the file. 
     task.upload('transformer.py')  #helper files
     task.upload('seq2seq_metrics.py')
     task.upload('tbc.py')
     task.run('source activate pytorch_p36')
     task.run('conda install -y -c fastai fastai') 
-    task.run('pip install -y tb-nightly')
-    task.run('pip install -y future')
+    task.run('pip install tb-nightly')
+    task.run('pip install future')
     # task.run('wget https://s3.amazonaws.com/fast-ai-nlp/giga-fren.tgz && tar -xvf giga-fren.tgz')  ## for Qs dataset
     task.run('mkdir europarl && cd europarl')
     task.run('wget http://www.statmt.org/europarl/v7/fr-en.tgz && tar -xvf fr-en.tgz && cd ~/')  ## for Qs dataset
     task.run(f'python -m torch.distributed.launch --nproc_per_node={args.proc_per_node} '
              f'./fastai_TransformerNMT_distributed_logging.py --mode=worker --proc_per_node={args.proc_per_node} --save-model', stream_output=True)
+
+    name = f'seq2seq_tfrm_{args.base}_{args.targ}' 
+    task.download(f'{name}.txt')
+    task.download(f'{name}.pth')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Fastai Transformer NMT Example')
@@ -132,6 +136,10 @@ if __name__ == '__main__':
     parser.add_argument('--mode', default='localworker', 
                         choices=['remote', 'local', 'worker', 'localworker'],
                         help="local: spawn multiple processes locally, remote: launch multiple machines/processes on AWS, worker: DDP aware single process process version, localworker: standalone single process version")
+    parser.add_argument('--base', type=str, default='en',
+                        help='base (feature) language i.e. en')
+    parser.add_argument('--targ', type=str, default='fr',
+                        help='target language i.e. fr')
 
     args = parser.parse_args()
 
