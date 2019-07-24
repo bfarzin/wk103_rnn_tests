@@ -99,13 +99,11 @@ def launcher():
     task.upload('fastai_TransformerNMT_distributed.py')  # send over the file. 
     task.upload('transformer.py')  #helper files
     task.upload('seq2seq_metrics.py')
-
     task.run('source activate pytorch_p36')
     task.run('conda install -y -c fastai fastai') 
-    task.run('wget wget https://s3.amazonaws.com/fast-ai-nlp/giga-fren.tgz && tar -xvf giga-fren.tgz')
+    task.run('wget https://s3.amazonaws.com/fast-ai-nlp/giga-fren.tgz && tar -xvf giga-fren.tgz')
     task.run(f'python -m torch.distributed.launch --nproc_per_node={args.proc_per_node} '
              f'./fastai_TransformerNMT_distributed.py --mode=worker --proc_per_node={args.proc_per_node} --save-model', stream_output=True)
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Fastai Transformer NMT Example')
