@@ -7,9 +7,10 @@ from fastai.distributed import *
 from fastprogress import fastprogress
 import torch.distributed as dist
 
+from torch.utils.tensorboard import SummaryWriter
+from tbc import TensorBoardFastAI
 from transformer import *
 from seq2seq_metrics import *
-
 import datetime             # for timestamps in the output to log progress
 
 # temp workaround that adds find_unused_parameters=True to DistributedDataParallel call - otherwise things crash with pretrained=False (but works fine with pretrained=True)
@@ -49,7 +50,7 @@ def worker(ddp=True):
     bs = 80  # 208:RTX, 128:V100
     epochs = args.epochs
     lr = 1e-3
-    # if ddp: lr *= args.proc_per_node
+    # if ddp: lr *= args.proc_per_node  #does not scale well for Transformer.  Why?
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -74,10 +75,15 @@ def worker(ddp=True):
     model = Transformer(n_x_vocab, n_y_vocab, d_model=512)
     model.apply(init_transformer)
 
+    # Writer to tensorboard
     learn = Learner(data, model, metrics=[accuracy, CorpusBLEU(n_y_vocab)], 
                     loss_func=FlattenedLoss(LabelSmoothingCrossEntropy, axis=-1))
     learn = learn.to_fp16(dynamic=True, clip=2.0)
     if ddp: learn = learn.to_distributed(gpu)
+
+    writer = SummaryWriter(comment=name)
+    mycallback = partial(TensorBoardFastAI, writer, track_weight=True, track_grad=True, metric_names=['val loss', 'accuracy','bleu'])
+    learn.callback_fns.append(mycallback)
 
     t0 = datetime.datetime.now();    print(t0, f'Starting training {epochs} epochs',flush=True)
     learn.fit_one_cycle(epochs, lr, div_factor=5)
@@ -88,7 +94,7 @@ def worker(ddp=True):
 
 def local_launcher():
     os.system(f'python -m torch.distributed.launch --nproc_per_node={args.proc_per_node} '
-              f'fastai_TransformerNMT_distributed.py --mode=worker --proc_per_node={args.proc_per_node}')
+              f'fastai_TransformerNMT_distributed_logging.py --mode=worker --proc_per_node={args.proc_per_node}')
 
 def launcher():
     import ncluster
@@ -96,17 +102,20 @@ def launcher():
     task = ncluster.make_task(name='fastai_NMT_multi_en_fr',
                               image_name='Deep Learning AMI (Ubuntu) Version 23.0',
                               disk_size=500, #500 GB disk space
-                              instance_type='p3.16xlarge') #'c5.large': CPU, p3.2xlarge: one GPU, 8x=4 GPU, 16x=8GPU  
-    task.upload('fastai_TransformerNMT_distributed.py')  # send over the file. 
+                              instance_type='p3.2xlarge') #'c5.large': CPU, p3.2xlarge: one GPU, 8x=4 GPU, 16x=8GPU  
+    task.upload('fastai_TransformerNMT_distributed_logging.py')  # send over the file. 
     task.upload('transformer.py')  #helper files
     task.upload('seq2seq_metrics.py')
+    task.upload('tbc.py')
     task.run('source activate pytorch_p36')
     task.run('conda install -y -c fastai fastai') 
+    task.run('pip install -y tb-nightly')
+    task.run('pip install -y future')
     # task.run('wget https://s3.amazonaws.com/fast-ai-nlp/giga-fren.tgz && tar -xvf giga-fren.tgz')  ## for Qs dataset
     task.run('mkdir europarl && cd europarl')
     task.run('wget http://www.statmt.org/europarl/v7/fr-en.tgz && tar -xvf fr-en.tgz && cd ~/')  ## for Qs dataset
     task.run(f'python -m torch.distributed.launch --nproc_per_node={args.proc_per_node} '
-             f'./fastai_TransformerNMT_distributed.py --mode=worker --proc_per_node={args.proc_per_node} --save-model', stream_output=True)
+             f'./fastai_TransformerNMT_distributed_logging.py --mode=worker --proc_per_node={args.proc_per_node} --save-model', stream_output=True)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Fastai Transformer NMT Example')

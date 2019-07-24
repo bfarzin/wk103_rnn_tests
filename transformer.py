@@ -69,7 +69,7 @@ class TransformerEmbedding(nn.Module):
         self.drop = nn.Dropout(inp_p)
     
     def forward(self, inp): 
-        pos = torch.arange(0, inp.size(1), device=inp.device).float()
+        pos = torch.arange(0, inp.size(1), device=inp.device).type_as(self.pos_enc.freq)
         return self.drop(self.embed(inp) * math.sqrt(self.emb_sz) + self.pos_enc(pos))
 
 def feed_forward(d_model, d_ff, ff_p=0., double_drop=True):
