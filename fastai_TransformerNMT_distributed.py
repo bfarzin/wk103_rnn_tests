@@ -49,7 +49,7 @@ def worker(ddp=True):
     bs = 80  # 208:RTX, 128:V100
     epochs = args.epochs
     lr = 1e-3
-    if ddp: lr *= args.proc_per_node
+    # if ddp: lr *= args.proc_per_node
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -75,7 +75,7 @@ def worker(ddp=True):
 
     learn = Learner(data, model, metrics=[accuracy, CorpusBLEU(n_y_vocab)], 
                     loss_func=FlattenedLoss(LabelSmoothingCrossEntropy, axis=-1))
-
+    learn = learn.to_fp16(dynamic=True, clip=2.0)
     if ddp: learn = learn.to_distributed(gpu)
 
     t0 = datetime.datetime.now();    print(t0, f'Starting training {epochs} epochs',flush=True)
