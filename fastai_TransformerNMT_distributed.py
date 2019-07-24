@@ -46,7 +46,7 @@ def worker(ddp=True):
     base,targ = 'fr','en'
     name = f'seq2seq_tfrm_{base}_{targ}'
     gpu = args.local_rank
-    bs, bptt = 80,80  # 208:RTX, 128:V100
+    bs = 80  # 208:RTX, 128:V100
     epochs = args.epochs
     lr = 1e-3
     if ddp: lr *= args.proc_per_node
@@ -58,7 +58,7 @@ def worker(ddp=True):
     rank = int(os.environ.get('RANK', 0))
     if ddp: dist.init_process_group(backend='nccl', init_method='env://')
 
-    path = Path('giga-fren/').absolute()
+    path = Path('europarl/').absolute()
 
     # only download dataset once per machine, sync workers
     if not (path/'data_save.pkl').is_file() and args.local_rank==0: 
@@ -67,10 +67,10 @@ def worker(ddp=True):
     if ddp: dist.barrier()  ## sync up so all workers have the data
     torch.cuda.set_device(gpu)
 
-    data = load_data(path, bs=bs, bptt=bptt)
+    data = load_data(path, bs=bs)
     data.add_tfm(shift_tfm)
     n_x_vocab,n_y_vocab = len(data.train_ds.x.vocab.itos), len(data.train_ds.y.vocab.itos)
-    model = Transformer(n_x_vocab, n_y_vocab, d_model=256)
+    model = Transformer(n_x_vocab, n_y_vocab, d_model=512)
     model.apply(init_transformer)
 
     learn = Learner(data, model, metrics=[accuracy, CorpusBLEU(n_y_vocab)], 
@@ -101,7 +101,9 @@ def launcher():
     task.upload('seq2seq_metrics.py')
     task.run('source activate pytorch_p36')
     task.run('conda install -y -c fastai fastai') 
-    task.run('wget https://s3.amazonaws.com/fast-ai-nlp/giga-fren.tgz && tar -xvf giga-fren.tgz')
+    # task.run('wget https://s3.amazonaws.com/fast-ai-nlp/giga-fren.tgz && tar -xvf giga-fren.tgz')  ## for Qs dataset
+    task.run('mkdir europarl && cd europarl')
+    task.run('wget http://www.statmt.org/europarl/v7/fr-en.tgz && tar -xvf fr-en.tgz && cd ~/')  ## for Qs dataset
     task.run(f'python -m torch.distributed.launch --nproc_per_node={args.proc_per_node} '
              f'./fastai_TransformerNMT_distributed.py --mode=worker --proc_per_node={args.proc_per_node} --save-model', stream_output=True)
 
