@@ -64,7 +64,7 @@ def worker(ddp=True):
 
     # only download dataset once per machine, sync workers
     if not (path/'data_save.pkl').is_file() and args.local_rank==0: 
-        create_data(path,base='fr', targ='en')
+        create_data(path,base=args.base, targ=args.targ)
         print(f"DDP: process {rank}/{world_size}")
     if ddp: dist.barrier()  ## sync up so all workers have the data
     torch.cuda.set_device(gpu)
@@ -81,9 +81,11 @@ def worker(ddp=True):
     learn = learn.to_fp16(dynamic=True, clip=2.0)
     if ddp: learn = learn.to_distributed(gpu)
 
-    writer = SummaryWriter(comment=name)
-    mycallback = partial(TensorBoardFastAI, writer, track_weight=True, track_grad=True, metric_names=['val loss', 'accuracy','bleu'])
-    learn.callback_fns.append(mycallback)
+    if (ddp and rank==0) or not ddp:
+        ##only a callback for the first one?  Do they all need a callback?
+        writer = SummaryWriter(comment=name)
+        mycallback = partial(TensorBoardFastAI, writer, track_weight=True, track_grad=True, metric_names=['val loss', 'accuracy','bleu'])
+        learn.callback_fns.append(mycallback)
 
     t0 = datetime.datetime.now();    print(t0, f'Starting training {epochs} epochs',flush=True)
     learn.fit_one_cycle(epochs, lr, div_factor=5)
