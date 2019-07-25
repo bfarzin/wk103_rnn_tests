@@ -8,7 +8,13 @@ class NGram():
     def __eq__(self, other):
         if len(self.ngram) != len(other.ngram): return False
         return np.all(np.array(self.ngram) == np.array(other.ngram))
-    def __hash__(self): return int(sum([o * self.max_n**i for i,o in enumerate(self.ngram)]))
+    def __hash__(self): 
+        ## This generates overflow errors.  :ots of possible ngrams?
+        '''
+        /home/ubuntu/seq2seq_metrics.py:11: RuntimeWarning: overflow encountered in long_scalars
+         def __hash__(self): return int(sum([o * self.max_n**i for i,o in enumerate(self.ngram)]))
+        '''
+        return int(sum([o * self.max_n**i for i,o in enumerate(self.ngram)]))
     
 def get_grams(x, n, max_n=5000):
     return x if n==1 else [NGram(x[i:i+n], max_n=max_n) for i in range(len(x)-n+1)]

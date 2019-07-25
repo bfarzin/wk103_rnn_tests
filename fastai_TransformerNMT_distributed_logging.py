@@ -104,7 +104,7 @@ def launcher():
     task = ncluster.make_task(name='fastai_NMT_multi_en_fr',
                               image_name='Deep Learning AMI (Ubuntu) Version 23.0',
                               disk_size=500, #500 GB disk space
-                              instance_type='p3.8xlarge') #'c5.large': CPU, p3.2xlarge: one GPU, 8x=4 GPU, 16x=8GPU  
+                              instance_type='p3.16xlarge') #'c5.large': CPU, p3.2xlarge: one GPU, 8x=4 GPU, 16x=8GPU  
     task.upload('fastai_TransformerNMT_distributed_logging.py')  # send over the file. 
     task.upload('transformer.py')  #helper files
     task.upload('seq2seq_metrics.py')
@@ -117,7 +117,8 @@ def launcher():
     task.run('mkdir europarl && cd europarl')
     task.run('wget http://www.statmt.org/europarl/v7/fr-en.tgz && tar -xvf fr-en.tgz && cd ~/')  ## for Qs dataset
     task.run(f'python -m torch.distributed.launch --nproc_per_node={args.proc_per_node} '
-             f'./fastai_TransformerNMT_distributed_logging.py --mode=worker --proc_per_node={args.proc_per_node} --save-model', stream_output=True)
+             f'./fastai_TransformerNMT_distributed_logging.py --mode=worker '
+             f'--epochs={args.epochs} --proc_per_node={args.proc_per_node} --save-model', stream_output=True)
 
     name = f'seq2seq_tfrm_{args.base}_{args.targ}' 
     task.download(f'{name}.txt')
