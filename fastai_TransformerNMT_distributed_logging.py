@@ -36,9 +36,13 @@ def create_data(path, base:str='fr', targ:str='en'):
     df.en = df.en.astype(str)
     df.fr = df.fr.astype(str)
 
-    data = Seq2SeqTextList.from_df(df, path = path, cols=base)\
+    ## pick the right processor langague for base/target
+    base_proc = [TokenizeProcessor(tokenizer=Tokenizer(lang=args.base)), NumericalizeProcessor()]
+    targ_proc = [TokenizeProcessor(tokenizer=Tokenizer(lang=args.targ)), NumericalizeProcessor()]
+
+    data = Seq2SeqTextList.from_df(df, path = path, cols=base, processor=base_proc)\
                                 .split_by_rand_pct(seed=42)\
-                                .label_from_df(cols=targ, label_cls=TextList)\
+                                .label_from_df(cols=targ, label_cls=TextList, processor=targ_proc)\
                                 .filter_by_func(lambda x,y: len(x) > 60 or len(y) > 60)\
                                 .databunch()
     data.save()
@@ -93,6 +97,8 @@ def worker(ddp=True):
     print('duration',t1-t0)    
 
     learn.save(Path(f'{name}').absolute(), with_opt=False)
+    learn.data.train_ds.x.vocab.save(Path(f'{args.base}_to_{args.targ}-{args.base}_vocab.pkl').absolute())
+    learn.data.train_ds.y.vocab.save(Path(f'{args.base}_to_{args.targ}-{args.targ}_vocab.pkl').absolute())
 
 def local_launcher():
     os.system(f'python -m torch.distributed.launch --nproc_per_node={args.proc_per_node} '
@@ -101,7 +107,7 @@ def local_launcher():
 def launcher():
     import ncluster
 
-    task = ncluster.make_task(name='fastai_NMT_multi_en_fr',
+    task = ncluster.make_task(name=f'fastai_NMT_multi_{args.base}_{args.targ}',
                               image_name='Deep Learning AMI (Ubuntu) Version 23.0',
                               disk_size=500, #500 GB disk space
                               instance_type='p3.16xlarge') #'c5.large': CPU, p3.2xlarge: one GPU, 8x=4 GPU, 16x=8GPU  
@@ -118,11 +124,13 @@ def launcher():
     task.run('wget http://www.statmt.org/europarl/v7/fr-en.tgz && tar -xvf fr-en.tgz && cd ~/')  ## for Qs dataset
     task.run(f'python -m torch.distributed.launch --nproc_per_node={args.proc_per_node} '
              f'./fastai_TransformerNMT_distributed_logging.py --mode=worker '
-             f'--epochs={args.epochs} --proc_per_node={args.proc_per_node} --save-model', stream_output=True)
+             f'--epochs={args.epochs} --proc_per_node={args.proc_per_node} '
+             f'--base={args.base} --targ={args.targ} --save-model', stream_output=True)
 
     name = f'seq2seq_tfrm_{args.base}_{args.targ}' 
     task.download(f'{name}.txt')
     task.download(f'{name}.pth')
+    ## get vocab for local use if needed
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Fastai Transformer NMT Example')
